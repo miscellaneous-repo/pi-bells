@@ -1,0 +1,20 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"compilerOptions": {
+		"target": "ES2023",
+		"lib": ["ES2023"],
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+		"types": ["node"],
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"verbatimModuleSyntax": true,
+		"isolatedModules": true,
+		"allowImportingTsExtensions": true,
+		"noEmit": true,
+		"forceConsistentCasingInFileNames": true,
+		"skipLibCheck": true
+	},
+	"include": ["pi-bells.ts", "test/**/*.mts"]
+}

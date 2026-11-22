@@ -1,0 +1,44 @@
+name: Feature request
+description: Another moment that should ring — or one that currently rings too much
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A bell that fires too often is worse than no bell at all, so proposals are judged on
+        "does this mean pi is **blocked on me**?". Useful reading before filing:
+        the "Known limitations" section of the README lists the channels that already exist.
+
+  - type: textarea
+    id: moment
+    attributes:
+      label: When should it ring?
+      description: Describe the moment from your side of the screen.
+    validations:
+      required: true
+
+  - type: input
+    id: event
+    attributes:
+      label: Suggested pi event (if you know one)
+      placeholder: ui_prompt_start, project_trust, tool_execution_end with durationMs > 30000 …
+    validations:
+      required: false
+
+  - type: textarea
+    id: noise
+    attributes:
+      label: How often would it fire?
+      description: Roughly per session/hour, and whether it could collide with the settle or approval bell.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: default
+    attributes:
+      label: Should it be on by default?
+      options:
+        - "Off by default (opt-in via env var)"
+        - "On by default"
+    validations:
+      required: true

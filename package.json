@@ -1,28 +1,54 @@
 {
-  "name": "pi-bell-on-settle",
-  "version": "0.2.0",
-  "private": true,
-  "description": "Two bells for pi: one when the agent settles, one when it is blocked on your approval",
-  "type": "module",
-  "license": "GPL-3.0-or-later",
-  "author": "Aquilonar",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/miscellaneous-repo/pi-bell-on-settle.git"
-  },
-  "homepage": "https://github.com/miscellaneous-repo/pi-bell-on-settle#readme",
-  "engines": {
-    "node": ">=22.6"
-  },
-  "scripts": {
-    "test": "node --test test/bell-on-settle.test.mts"
-  },
-  "keywords": [
-    "pi",
-    "pi-extension",
-    "pi-coding-agent",
-    "bell",
-    "notification",
-    "windows-terminal"
-  ]
+	"name": "pi-bells",
+	"version": "1.0.0",
+	"description": "Bells for pi: ring when a run settles, when a permission dialog waits for your approval, or when a sub-agent needs you. Single-file, zero-dependency extension that writes BEL to stdout.",
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"pi",
+		"pi-coding-agent",
+		"bell",
+		"bel",
+		"notification",
+		"terminal",
+		"windows-terminal"
+	],
+	"license": "GPL-3.0-or-later",
+	"author": "Aquilonar",
+	"homepage": "https://github.com/miscellaneous-repo/pi-bells#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/miscellaneous-repo/pi-bells.git"
+	},
+	"bugs": {
+		"url": "https://github.com/miscellaneous-repo/pi-bells/issues"
+	},
+	"type": "module",
+	"engines": {
+		"node": ">=22.6"
+	},
+	"files": [
+		"pi-bells.ts",
+		"README.md",
+		"README.zh-CN.md",
+		"CHANGELOG.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"./pi-bells.ts"
+		]
+	},
+	"scripts": {
+		"test": "node --test test/pi-bells.test.mts",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check .",
+		"format": "biome check --write .",
+		"check": "npm run lint && npm run typecheck && npm test"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.6.8",
+		"@types/node": "^26.6.6",
+		"typescript": "^7.0.2"
+	}
 }

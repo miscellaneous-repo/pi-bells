@@ -1,4 +1,11 @@
+# dependencies
 node_modules/
+
+# logs and local artifacts
 *.log
+coverage/
+.biome/
+
+# OS cruft
 .DS_Store
 Thumbs.db

@@ -1,204 +1,181 @@
-# pi-bell-on-settle
+# pi-bells
 
-给 [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) 补一声 `BEL`：
+Two bells for [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent):
 
-- **收尾响**：pi 停下来等你输入时
-- **审批响**：pi 弹审批对话框等你点 Allow / Reject 时（`pi-permission-system` 的 `ask` 策略）
+- **settle bell** — pi stopped and is waiting for your input
+- **approval bell** — a permission dialog is waiting for Allow / Reject
 
+[![CI](https://github.com/miscellaneous-repo/pi-bells/actions/workflows/ci.yml/badge.svg)](https://github.com/miscellaneous-repo/pi-bells/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/pi-bells.svg)](https://www.npmjs.com/package/pi-bells)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![pi-package](https://img.shields.io/badge/pi-package-6f42c1.svg)](https://pi.dev/packages)
 
-pi 本身没有任何「完成响铃」实现 —— 源码里所有 `\x07` 都是 OSC 转义序列的终止符（设置标题、OSC 133 提示符标记、OSC 52 剪贴板等），终端不会因此发声；`TerminalSettingsSchema` 里也没有 bell 选项。这个扩展把这最后一块补上，用最标准的机制：往自己的 stdout 写一个 `0x07`，剩下的交给终端。
+pi ships no "done" bell: every `\x07` in its source is an OSC terminator (title, OSC 133 shell
+marks, OSC 52 clipboard), and `TerminalSettingsSchema` has no bell option. This extension adds the
+missing piece with the most standard mechanism available — it writes a single `0x07` to its own
+stdout and lets the terminal decide what that sounds like.
 
-```
-pi（TUI 主进程） ──stdout──► Windows Terminal ──bellStyle/bellSound──► 🔊
+```text
+pi (TUI process) ──stdout──► Windows Terminal ──bellStyle/bellSound──► 🔊
         ▲
-        ├── agent_settled                      （收尾）
-        └── permission-request: waiting        （审批）
+        ├── agent_settled                    (settle)
+        └── permission-request: waiting      (approval)
 ```
 
----
+One file, no runtime dependencies, loaded straight from TypeScript by pi's built-in type stripping.
 
-## 目录
+## Contents
 
-- [安装](#安装)
-- [验证](#验证)
-- [审批铃：需要你 approve 时响一声](#审批铃需要你-approve-时响一声)
-- [测试](#测试)
-- [配置：音色由终端决定](#配置音色由终端决定)
-- [可调参数（环境变量）](#可调参数环境变量)
-- [为什么需要这些门控](#为什么需要这些门控)
-- [排错](#排错)
-- [卸载](#卸载)
-- [已知限制](#已知限制)
-- [附：为什么不能从工具里发 BEL](#附为什么不能从工具里发-bel)
-- [文件](#文件)
-- [变更记录](#变更记录)
-- [许可](#许可)
+- [Install](#install)
+- [Verify](#verify)
+- [The approval bell](#the-approval-bell)
+- [Tests](#tests)
+- [Sound is a terminal setting](#sound-is-a-terminal-setting)
+- [Configuration](#configuration)
+- [Why these gates](#why-these-gates)
+- [Troubleshooting](#troubleshooting)
+- [Uninstall](#uninstall)
+- [Known limitations](#known-limitations)
+- [Appendix: why a tool cannot emit BEL](#appendix-why-a-tool-cannot-emit-bel)
+- [Project layout](#project-layout)
+- [License](#license)
 
----
+## Install
 
-## 安装
+As a pi package (recommended — pi keeps it up to date and can show its changelog):
 
-pi 会自动发现这两个位置的扩展（`<CONFIG_DIR>` 就是 `.pi`）：
+```bash
+pi install git:github.com/miscellaneous-repo/pi-bells        # works today
+pi install npm:pi-bells                                      # once published to npm
+```
 
-| 位置 | 生效范围 | 是否需要 Trust |
-|---|---|---|
-| `<cwd>/.pi/extensions/` | 只在该项目内 | **需要**。重启 pi 后会问 `Trust project folder?`，选 Trust |
-| `<agentDir>/extensions/` | 全局（推荐） | 不需要。全局扩展在 trust 检查**之前**加载 |
+Or copy the single file. pi discovers extensions in two places (`<CONFIG_DIR>` is `.pi`):
 
-`<agentDir>` 默认是 `~/.pi`，可用环境变量 `PI_CODING_AGENT_DIR` 覆盖（本机是 `G:\Application\.pi`）。
+| Location | Scope | Trust required |
+| --- | --- | --- |
+| `<cwd>/.pi/extensions/` | this project only | **yes** — pi asks `Trust project folder?` on restart |
+| `<agentDir>/extensions/` | global (recommended) | no — global extensions load before the trust check |
 
-**从仓库拿：**
+`<agentDir>` is `~/.pi` by default and can be overridden with `PI_CODING_AGENT_DIR`.
 
 ```powershell
-git clone https://github.com/miscellaneous-repo/pi-bell-on-settle.git
-Copy-Item '.\pi-bell-on-settle\bell-on-settle.ts' "$env:USERPROFILE\.pi\extensions\" -Force
+Copy-Item .\pi-bells.ts "$env:USERPROFILE\.pi\extensions\" -Force
 ```
 
-**全局安装：**
+Then `/reload` for a global copy, or restart pi (not `/reload`) for a project copy so the trust
+prompt can appear.
+
+## Verify
+
+1. `/reload`, then send any message.
+2. When the answer ends you should hear one bell **from pi's own pane** — no new window.
+3. Let pi run something your policy marks `ask` (for example `rm` on a scratch file); the approval
+   dialog should ring as it appears.
+4. Read the log:
 
 ```powershell
-Copy-Item '.\bell-on-settle.ts' "$env:USERPROFILE\.pi\extensions\" -Force
-# 本机（PI_CODING_AGENT_DIR=G:\Application\.pi）：
-Copy-Item '.\bell-on-settle.ts' 'G:\Application\.pi\extensions\' -Force
+Get-Content "$env:TEMP\pi-bells.log" -Tail 20
 ```
 
-然后：
+A healthy log looks like this (every line carries a pid, so delegated sub-processes are
+distinguishable):
 
-- 全局目录 → 敲 **`/reload`** 即可，不用重启。
-- 项目目录 → **必须重启 pi**（不是 `/reload`）才能触发 Trust 询问。
-
-扩展是单文件、零依赖、`.ts` 直接加载（pi 内置类型剥离，不需要编译）。目录里也可以放 `package.json` + `index.ts` 做成包，但单文件就够了。
-
-一行版（不想复制文件的话，也可以直接手写）：
-
-```ts
-export default function (pi: any) {
-  pi.on("agent_settled", (e: any, ctx: any) => {
-    if (ctx?.mode !== "tui" || e?.aborted) return;
-    process.stdout.write("\x07");
-  });
-}
-```
-
-（只做收尾，且不含节流和去重 —— 见下文，WT 下会有丢音和重复响的问题。审批铃需要 `pi.events`，见[审批铃](#审批铃需要你-approve-时响一声)。）
-
-## 验证
-
-1. `/reload`，然后随便发一句话。
-2. 回答结束时应该响一声，**从 pi 自己那个窗格响**，不会弹新窗口。
-3. 再让它执行一条会被判为 `ask` 的命令（例如让它 `rm` 一个临时文件），弹审批框时也应该响一声。
-4. 看日志：
-
-```powershell
-Get-Content "$env:TEMP\pi-bell-on-settle.log" -Tail 20
-```
-
-正常的样子（每行都带 `[pid N]`，delegate 子进程的写入也能区分开）：
-
-```
+```text
 2026-11-20T17:09:28.790Z [pid 28176] loaded: instance=1 minInterval=2000ms disabled=false approval=on(2000ms) tty=true mode=(n/a)
-2026-11-20T17:09:28.790Z [pid 28176] bell
-2026-11-20T17:09:41.2xxZ [pid 28176] bell approval: tool=bash what=rm temp/scratch.txt source=tool_call
-2026-11-20T17:09:43.0xxZ [pid 28176] bell
-2026-11-20T17:09:46.5xxZ [pid 39204] skip: mode=json
+2026-11-20T17:09:41.200Z [pid 28176] bell
+2026-11-20T17:09:43.050Z [pid 28176] bell approval: tool=bash what=rm temp/scratch.txt source=tool_call
+2026-11-20T17:09:46.510Z [pid 39204] skip: mode=json
 ```
 
-| 日志表现 | 含义 |
-|---|---|
-| `bell` | 收尾响了一声，扩展正常工作 |
-| `bell approval: tool=… what=…` | 审批铃：`pi-permission-system` 正在等你 Allow/Reject |
-| 有 `loaded` 但从不出现 `bell` | 事件没到（检查 pi 版本 / 是否 reload 过） |
-| 有 `bell` 但没有 `bell approval` | 审批通道没生效：该包未加载/改名，或该次弹窗不是它触发的（见[已知限制](#已知限制)） |
-| 完全没有任何行 | 文件没被加载：路径不对，或项目目录还没被 Trust |
-| `loaded: instance=2` | 同一份扩展被加载了两次（正常，`/reload` 会这样）—— 共享节流会让它只响一声 |
-| `loaded: tty=` 不是 `true` | 诊断信息：pi 的 stdout 不是终端，写了也不会响 |
-| `approval=off` | 审批铃被 `PI_BELL_APPROVAL_DISABLE` 关了 |
-| `skip: mode=json` / `print` | 是 `acp_delegate` 派出的子 agent 在收尾 —— 正常，必须跳过 |
-| `skip: throttle gap=...` | 节流窗口内的第二次收尾，被挡掉 —— 正常 |
-| `skip approval: throttle gap=...` | 2s 内连出两次审批请求（例如选了 `Reject with Reason` 后又弹输入框）—— 正常 |
-| `skip approval: mode=undefined` | 审批事件早于 `session_start`（不该发生）—— 缓存没建立时保守不响 |
-| `skip: aborted` | 你按 Esc 打断的 —— 正常 |
-| `skip: not idle (work already queued)` | 收尾瞬间紧接着还有排队消息要处理，不算真正在等你 —— 正常 |
-| `--- log rotated ---` | 日志超过 256KB 自动轮转，只保留这句 —— 正常 |
+## The approval bell
 
-## 审批铃：需要你 approve 时响一声
+The second channel rings when pi opens a permission dialog and waits for **Allow Once / Allow
+Always / Reject / Reject with Reason**.
 
-除了「收尾响」，扩展还有第二条通道：**pi 弹审批对话框等你点 Allow/Reject 时也响一声。**
-
-来源是 [`pi-permission-system`](https://www.npmjs.com/package/pi-permission-system)（本机 `G:\Application\.pi\npm\node_modules\pi-permission-system`，实测 v0.8.0）。它在 `tool_call` 里发现策略是 `ask` 时（本机 `pi-permissions.jsonc` 把 `rm` / `rmdir` / `Remove-Item` / `rimraf` / `-delete` / `unlink` / `shred` / `wipe` 这类删除命令设成了 `ask`，且 `yoloMode: false`），会先发一个事件，再弹 `ui.select(...)`（Allow Once / Allow Always / Reject / Reject with Reason）：
+Source: [`pi-permission-system`](https://www.npmjs.com/package/pi-permission-system) (verified with
+0.8.0). When a `tool_call` matches an `ask` policy (`rm`, `rmdir`, `Remove-Item`, `rimraf`,
+`-delete`, `unlink`, `shred`, `wipe` … with `yoloMode: false`), it emits an event *before* opening
+`ui.select(...)`:
 
 ```ts
-// pi-permission-system 内部：src/index.ts
+// pi-permission-system internals: src/index.ts
 pi.events.emit("pi-permission-system:permission-request", { state: "waiting", toolName, command, path, … });
-//                                                     ↑ 后续还有 "approved" / "denied"
+//                                                     ↑ later also "approved" / "denied"
 ```
 
-扩展订阅的就是这个共享事件总线通道，**只在 `state === "waiting"` 的那一瞬响**：
+This extension subscribes to that shared bus channel and rings **only on `state === "waiting"`**:
 
 ```ts
 pi.events.on("pi-permission-system:permission-request", (data) => {
-  if (data?.state !== "waiting") return;   // approved / denied / yolo 自动批准 都静默
-  if (state.mode !== "tui") return;        // 同收尾铃：delegate 子进程必须挡掉
+  if (data?.state !== "waiting") return;   // approved / denied / yolo auto-approval stay silent
+  if (state.mode !== "tui") return;        // like the settle bell: json/print sub-processes are silent
   process.stdout.write("\x07");
 });
 ```
 
-`waiting` 是在弹窗**之前**发出的，所以铃声和对话框几乎同时出现，不会滞后。
+`waiting` is emitted *before* the dialog appears, so the ring and the dialog land together.
 
-### 为什么选这个通道，而不是 pi 原生的 `ui_prompt_start`
+### Why this channel instead of pi's own `ui_prompt_start`
 
-pi v1.6 确实有个原生事件 `ui_prompt_start`（`kind: select|confirm|input|editor|custom`），所有 `ctx.ui.*` 阻塞式提示都会触发。对比：
+pi 1.6 does have a native `ui_prompt_start` event (`kind: select | confirm | input | editor |
+custom`) that fires for every blocking `ctx.ui.*` prompt. The trade-off:
 
-| | `pi-permission-system:permission-request` ← 本扩展用 | `ui_prompt_start` |
-|---|---|---|
-| 覆盖面 | 只有审批（正好是想要的） | 所有阻塞提示：plan-mode、`pi-pwsh` 的 `Request-PiConfirmation`、timed-confirm… |
-| 精确性 | 带 `toolName` / `command` / `path`，无需匹配文案 | 只能靠 `kind === "select" && title.startsWith("Permission Required")` 这种文案匹配收窄 |
-| 稳定性 | 该包的**内部**通道（未在 pi 文档公布），升级可能改名 | pi 原生、有文档 |
-| 失效表现 | 升级/移除后静默失效（日志少 `bell approval`），不影响收尾铃 | 减少响铃频率 |
+| | `pi-permission-system:permission-request` (used here) | `ui_prompt_start` |
+| --- | --- | --- |
+| Coverage | approvals only — exactly the ask | every blocking prompt: plan mode, `pi-pwsh` `Request-PiConfirmation`, timed-confirm … |
+| Precision | carries `toolName` / `command` / `path`; no text matching | needs `kind === "select" && title.startsWith("Permission Required")` style filtering |
+| Stability | an **internal** channel of that package, undocumented by pi | native to pi, documented |
+| Failure mode | goes quiet after an upgrade or removal (log simply lacks `bell approval`) | fires less often |
 
-结论：只要审批就够，选前者。如果想要「任何弹窗等我动手都响」，再加 `ui_prompt_start` 即可 —— 两套可以共存。
+If you want "ring for any prompt that wants me", add a `ui_prompt_start` handler — the two
+approaches coexist fine.
 
-### 子 agent 转发审批
+### Forwarded sub-agent approvals
 
-`acp_delegate` 派出的子进程 `hasUI` 为 `false`，它走的是「把请求写到文件 + 父进程轮询转发」那条路，**自己不会弹窗**（也就不会响，何况 `mode` 门控已经挡住子进程）。父进程弹出的是 `Permission Required (Subagent)`，`waiting` 在父进程发出 → 父窗口响一声，正是想要的。
+A sub-agent spawned by `acp_delegate` has `hasUI === false`: it writes the request to a file and the
+parent polls for it, so the child never opens a dialog (and could never ring anyway — `mode` gates
+it out). The parent opens `Permission Required (Subagent)` and emits `waiting`, so the parent pane
+rings. That is the desired behaviour.
 
-### 两个实现细节
+### Two implementation details
 
-1. **独立节流桶**：审批铃和收尾铃各用各的计数器（`lastApprovalBell` / `lastBell`）。共用一个桶的话，你批准后 agent 几秒内跑完，收尾铃会被审批铃压掉。分开就互不干扰（WT 播放 wav 期间仍可能丢弃极近的第二声，那是终端行为，但日志里两条 `bell` 都能看到）。
-2. **mode 要缓存**：`pi.events` 的 handler 签名是 `(data) => void`，**拿不到 ctx**（没有 `ctx.mode`）。所以扩展在 `session_start` / `agent_settled` 里把 `ctx.mode` 记到进程级共享状态上给审批通道用；`/reload` 会带 `reason: "reload"` 再发一次 `session_start`，缓存不会失效。缓存为空时保守不响（`skip approval: mode=undefined`）。
+1. **Separate throttle bucket.** The approval bell has its own counter (`lastApprovalBell`). Sharing
+   one bucket would let an approval bell swallow the settle bell that follows a few seconds later.
+2. **The mode is cached.** `pi.events` handlers are `(data) => void` — they get no ctx, hence no
+   `ctx.mode`. The extension records the mode from `session_start` / `agent_settled` in shared state
+   (`/reload` re-emits `session_start` with `reason: "reload"`, so the cache survives). An empty
+   cache stays silent (`skip approval: mode=undefined`).
 
-## 测试
+## Tests
 
-`test/bell-on-settle.test.mts` 用桩替身跑完整行为矩阵，不启动 pi、不碰真实终端：
-
-```powershell
-npm test        # = node --test test/bell-on-settle.test.mts
+```bash
+npm test      # node --test test/pi-bells.test.mts
+npm run check # lint + typecheck + tests (what CI runs)
 ```
 
-17 个用例覆盖：两条通道各自的触发与门控（`aborted` / `isIdle` / `mode`）、独立节流桶、`/reload` 重复实例只响一声、`approved` / `denied` 静默、以及全部环境变量开关。
+The 17 stub cases cover both channels: triggers, every gate (`aborted` / `isIdle` / `mode`), the
+independent buckets, duplicate instances after `/reload`, `approved` / `denied` silence, and all
+environment variables. Tests stub `pi.on` / `pi.events.on`, patch `process.stdout.write` to swallow
+only BELs, and re-import the module per scenario with a `?case=` query string because environment
+variables are read at import time.
 
-手法（想自己加用例时看）：
+Node **>= 22.6** is required (22.6–22.17 need `--experimental-strip-types`; 22.18+ and 24 run `.ts`
+directly).
 
-- `pi.on` / `pi.events.on` 被换成数组收集器，手工 `settle()` / `permission()` 触发。
-- 拦截 `process.stdout.write`，只吞 `\u0007`、其余转发（否则 test runner 的报告会被吃掉）。
-- 扩展在 **import 时**读环境变量，所以每个用例用 `?case=…` 查询串强制重新求值，并先清掉 `globalThis.__piBellOnSettle__`。
-- 需要 Node ≥ 22.6（24 默认开类型剥离；22.x 要加 `--experimental-strip-types`）。
+Stub tests prove the *logic* — "does it ring when it should" still deserves one manual smoke test.
 
-桩测试证明的是**逻辑**（什么时候该响、什么时候不该响）；「响了有没有声音」是终端的事，仍需按上一节在真机上冒烟一次。
+## Sound is a terminal setting
 
-## 配置：音色由终端决定
-
-**扩展只负责发字符，不负责发声。** 响不响、用什么声音，完全由终端配置决定。
+The extension only emits a character. Whether that makes noise, and what noise, is terminal config.
 
 ### Windows Terminal
 
-`settings.json` 里（本机路径 `C:\Users\Ernesto\AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json`）：
+In `settings.json`:
 
 ```jsonc
 "profiles": {
   "defaults": {
-    "bellStyle": ["audible", "taskbar"]     // audible=出声，taskbar=任务栏闪
+    "bellStyle": ["audible", "taskbar"]     // audible = sound, taskbar = flash the taskbar
   },
   "list": [
     {
@@ -213,159 +190,174 @@ npm test        # = node --test test/bell-on-settle.test.mts
 }
 ```
 
-要点：
+Notes:
 
-- `bellSound` **没有在 defaults 里配**，只在名为 `PowerShell` 的那个 profile 里配了 → 只有在那个 profile 里才听到你挑的铃声，其它 profile 用系统默认音。想全局统一，就把它挪进 `profiles.defaults`。
-- `bellSound` 是**数组**，WT 每次 BEL 从中随机挑一个。
-- `bellStyle` 不含 `audible` 就永远静音（只剩闪任务栏）。
-- GUI 里对应 **设置 → 配置文件 → 外观 → 铃声**。
+- `bellSound` above is set on one profile only, so the other profiles use the system default sound.
+  Move it into `profiles.defaults` to apply it everywhere.
+- `bellSound` is an **array**; Windows Terminal picks one at random per BEL.
+- Without `audible` in `bellStyle` it is always silent (taskbar flashing only).
+- In the GUI: Settings → profile → Appearance → Bell.
 
-### 其它终端
+### Other terminals
 
-| 终端 | 行为 |
-|---|---|
-| Linux/macOS 终端 | 通常走系统提示音；iTerm2 有独立的 bell 音效设置 |
-| tmux / screen | 可能被中转或吞掉，需要 `set -g bell-action any` 之类 |
-| VS Code 集成终端 | 有 `terminal.integrated.enableBell` 开关 |
-| kitty / WezTerm | 支持 OSC 99 / OSC 777 通知，本扩展用的是裸 BEL，不影响 |
+| Terminal | Behaviour |
+| --- | --- |
+| Linux / macOS terminals | usually the system beep; iTerm2 has its own bell settings |
+| tmux / screen | may be forwarded or dropped — `set -g bell-action any` |
+| VS Code integrated terminal | `terminal.integrated.enableBell` |
+| kitty / WezTerm | support OSC 99 / OSC 777 notifications; this extension sends a bare BEL, which is unaffected |
 
-本扩展没有做 OSC 777/99 之类的富通知 —— 在 WT 下这些都不被识别，裸 BEL 是唯一可靠的通道。
+No OSC 777/99 rich notifications here: Windows Terminal ignores them, and a bare BEL is the only
+reliable channel.
 
-## 可调参数（环境变量）
+## Configuration
 
-全部可选，不设就用默认值。改完 `/reload` 生效。
+All optional; `/reload` after changing one.
 
-| 变量 | 默认 | 作用 |
-|---|---|---|
-| `PI_BELL_DISABLE` | 未设 | 设为 `1` 则加载但完全不响（两条通道都关） |
-| `PI_BELL_APPROVAL_DISABLE` | 未设 | 设为 `1` 只关掉「审批响」，收尾铃照常 |
-| `PI_BELL_MIN_INTERVAL_MS` | `2000` | 收尾铃的节流窗口毫秒数。`0` = 不节流（WT 下会丢音，不建议） |
-| `PI_BELL_APPROVAL_MIN_INTERVAL_MS` | 同上 | 审批铃自己的节流窗口（独立桶，互不压制） |
-| `PI_BELL_LOG` | `%TEMP%\pi-bell-on-settle.log` | 日志路径；设成 `off` 关闭日志 |
-
-PowerShell 里设置（仅当前会话）：
-
-```powershell
-$env:PI_BELL_DISABLE = '1'
-```
-
-永久设置用 `setx PI_BELL_MIN_INTERVAL_MS 3000`（新开的终端才生效）。
-
-日志策略：每次触发/跳过写一行，超过 256KB 自动轮转，不会无限长；写日志失败一律静默，绝不影响响铃。
-
-## 为什么需要这些门控
-
-1. **`ctx.mode === "tui"`**
-   `acp_delegate` 派出的子 agent 是一个真实的 pi 子进程，它**也会加载全局扩展**（`buildChildArgs` 从不加 `--no-extensions`）。但它是 `--mode json` / `-p`，stdout 是 `stdio: ["pipe","pipe","pipe"]` 的管道：往里面写 `0x07` 既污染 JSONL 事件流，你也听不到。所以必须用 `ctx.mode` 门控 —— 注意**不能用 `hasUI`**，RPC 模式下 `hasUI` 也是 `true`。
-
-2. **`aborted` 不响**
-   你按 Esc 打断时，你已经盯着屏幕了，还响一声只会烦人。
-
-3. **`ctx.isIdle() === false` 不响**
-   收尾瞬间如果紧接着还有排队消息要处理（`deliverAs: "steer"` 插入的那种，比如 `acp_delegate` 的完成通知），pi 会立刻转进下一轮，此时并不真的是在等你 —— 响一声反而是噪音。这里只在**明确返回 false** 时跳过，函数不存在就不管，避免误杀。
-
-4. **共享节流窗口（默认 2 秒）**
-   WT 的 audible bell 播的是 1~2 秒的 wav，**播放期间的 BEL 被静默丢弃**。实测：发 4 个间隔 600ms 的 BEL，只听到 2 声。所以高频收尾必须节流，否则你会以为扩展坏了。
-
-5. **节流状态挂 `globalThis`（重复加载自愈）**
-   pi 的注释写得很直白：「a loaded extension cannot be unloaded」。`/reload` 会创建**新的**扩展实例，而旧实例的 handler 仍然挂在事件总线上 —— 早期版本两个实例各有一个独立的 `lastBell`，于是一次收尾响两声（实测日志里出现过相差 1ms 的两条 `bell`）。
-
-   现在 `lastBell` 是进程级共享的，重复实例会在同一窗口内互相把对方挡掉，自然塌缩成一声。这里**刻意不用 `installed` 标志去阻止第二次注册** —— 万一某个实例注册完就被 pi 丢弃（`omitReplacedExtensions` 之类的路径），标志位会让它永久哑掉；用共享节流则无论注册几次都只会响一次，更不容易坏。
-
-6. **审批铃只认 `state === "waiting"`**
-   同一个请求后续还会发 `approved` / `denied`（包括 yolo 自动批准时直接发 `approved`，连框都不弹）。只在 `waiting` 响才不会在你点完按钮、或自动放行时再响一次。
-
-7. **审批铃不套用 `aborted` / `isIdle`**
-   这两条是为「收尾」设计的。审批发生在 agent 运行**中途**（`tool_call` 被卡住等决定），那时 `isIdle()` 永远是 `false`，`agent_settled` 也根本不会来 —— 套上去只会让审批铃永远不响。
-
-## 排错
-
-| 现象 | 排查 |
-|---|---|
-| 日志有 `bell` 但没声音 | ① profile 里 `bellStyle` 是否含 `audible`；② `bellSound` 是否配在**当前**这个 profile；③ 系统音量 / 静音；④ 换成在「PowerShell」profile 里试 |
-| 从没出现过 `bell` | 看有没有 `skip: mode=` → 被门控挡了；什么都没 → 文件没加载（路径 / Trust） |
-| 审批时不响（收尾照常响） | ① 那次弹窗不是 `pi-permission-system` 触发的（例如 `pi-pwsh` 的 `Request-PiConfirmation`、plan-mode 选项目 —— 本扩展不覆盖）；② 该包未加载或升级改了通道名（`pi-permission-system` 是否在 `settings.json` 的 `packages` 里）；③ `skip approval: PI_BELL_APPROVAL_DISABLE` → 环境变量关了；④ `skip approval: mode=undefined` → 缓存没建立，重启 pi |
-| 一次响两声 | 旧版本（每个实例各有独立节流状态）。更新文件后 `/reload` |
-| 某些收尾不响 | 看日志是否有 `skip: not idle`（有排队工作，正常）或 `skip: throttle`（离上一次太近） |
-| 审批铃太吵 | 设 `PI_BELL_APPROVAL_DISABLE=1`，或调大 `PI_BELL_APPROVAL_MIN_INTERVAL_MS` |
-| 响得太频繁 | 调大 `PI_BELL_MIN_INTERVAL_MS` |
-| 失焦 / 最小化时想听到 | WT 的 `audible` 在后台一般仍会响；若被系统专注助手压掉，把 WT 加进白名单。想让任务栏提醒更明显，`bellStyle` 加 `taskbar` |
-| 想临时关掉 | 设 `PI_BELL_DISABLE=1`，或者 `Remove-Item` 掉文件后 `/reload` |
-
-## 卸载
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PI_BELL_DISABLE` | unset | `1` = loaded but never rings (both channels) |
+| `PI_BELL_APPROVAL_DISABLE` | unset | `1` = silence the approval bell only |
+| `PI_BELL_MIN_INTERVAL_MS` | `2000` | settle-bell throttle window; `0` disables throttling (Windows Terminal will drop bells) |
+| `PI_BELL_APPROVAL_MIN_INTERVAL_MS` | same as above | approval-bell window (separate bucket) |
+| `PI_BELL_LOG` | `%TEMP%\pi-bells.log` | log path; `off` disables logging |
 
 ```powershell
-Remove-Item "$env:USERPROFILE\.pi\extensions\bell-on-settle.ts"
-# 或全局目录：
-Remove-Item 'G:\Application\.pi\extensions\bell-on-settle.ts'
+$env:PI_BELL_DISABLE = '1'                 # current session
+setx PI_BELL_MIN_INTERVAL_MS 3000          # persistent (new terminals only)
 ```
 
-然后 `/reload`。注意：**已经加载的实例在本次进程内无法卸载**，需要重启 pi 才能彻底恢复。
+One log line per bell or skip; the file is truncated in place past 256 KB. Logging failures are
+swallowed and never affect the bell.
 
-## 已知限制
+## Why these gates
 
-- **只在 TUI 模式响。** `--mode json` / `-p` / RPC 跑批时不响，这是刻意的。
-- **审批铃依赖 `pi-permission-system` 的内部事件**（`pi-permission-system:permission-request`，实测 v0.8.0）。该包改名/移除这条通道后，审批铃会**静默失效**（收尾铃不受影响）；判断方法：日志里有 `loaded: … approval=on(...)` 却从无 `bell approval`。
-- **只覆盖 `pi-permission-system` 的审批**。其它来源的阻塞式弹窗不响：`pi-pwsh` 的 `Request-PiConfirmation` / `Request-PiSelection` / `Request-PiInput`、plan-mode 的选项列表、`timed-confirm` 之类。要全覆盖请叠加 `pi.on("ui_prompt_start", …)`（pi v1.6 原生事件，`kind` + `title` 可用来过滤）。
-- **不区分「成功」和「失败」。** `agent_settled` 是终点边界，不带结果信息。想区分得接 `agent_end` 里的消息状态。
-- **不区分 delegate 完成。** 每次收尾都响。如果想让 `acp_delegate` 完成时单独有声音，需要在 `billion-context` 配置里开 `pi.subagents.notifyStructured: true`，再监听 `customType: "billion-context:delegate-notification"` 的 custom 消息 —— 那是另一套实现，本项目没做。
-- **BEL 是终端层机制**，管不到通知中心 / 系统 Toast。需要桌面级提醒请用 `examples/extensions/notify.ts` 那套（PowerShell Toast / OSC 777）。
+1. **`ctx.mode === "tui"`** — a sub-agent from `acp_delegate` is a real pi child process and loads
+   global extensions too (`buildChildArgs` never passes `--no-extensions`), but it runs
+   `--mode json` / `-p` with a piped stdout: a BEL there is inaudible and corrupts the JSONL stream.
+   Note that `hasUI` is also `true` under RPC, so it cannot be used for this.
+2. **`aborted` stays silent** — you pressed Esc; you were already looking.
+3. **`ctx.isIdle() === false` stays silent** — queued work (for example a `deliverAs: "steer"`
+   delegate notification) runs immediately, so pi is not waiting for you. Only an explicit `false`
+   skips; a missing function is ignored.
+4. **A shared throttle window (2 s)** — the Windows Terminal audible bell plays a 1–2 s wav and
+   silently drops BELs that arrive meanwhile (four BELs 600 ms apart produced two sounds).
+5. **Throttle state on `globalThis`** — "a loaded extension cannot be unloaded", so `/reload`
+   creates a second instance whose handlers stay on the bus. A shared `lastBell` collapses them into
+   one bell. Deliberately no `installed` flag: if pi ever discards a freshly registered instance,
+   a flag would silence the extension forever, while a shared window merely rings once.
+6. **Approval bell only on `state === "waiting"`** — the same request also emits `approved` /
+   `denied` (yolo auto-approval emits `approved` without any dialog).
+7. **The approval bell ignores `aborted` / `isIdle`** — those gates are for the settle path. An
+   approval happens mid-run, where `isIdle()` is always `false` and `agent_settled` never fires;
+   applying them would silence the approval bell forever.
 
-## 附：为什么不能从工具里发 BEL
+## Troubleshooting
 
-想用一条命令「试听」是行不通的，两层拦截：
+| Log line | Meaning |
+| --- | --- |
+| `bell` | the settle bell fired |
+| `bell approval: tool=… what=…` | an approval dialog is waiting for you |
+| `loaded` but never `bell` | no events arrived (pi version, or never reloaded) |
+| `bell` but never `bell approval` | approval channel inactive: package missing/renamed, or the dialog was not from `pi-permission-system` |
+| nothing at all | the file was not loaded (path, or the project is not trusted) |
+| `loaded: instance=2` | loaded twice (normal after `/reload`); the shared window still rings once |
+| `loaded: tty=` not `true` | diagnostics: pi's stdout is not a terminal, so nothing could be heard |
+| `approval=off` | `PI_BELL_APPROVAL_DISABLE` is set |
+| `skip: mode=json` / `print` | a delegated sub-agent settled — correctly skipped |
+| `skip: throttle gap=…` | second settle inside the window — normal |
+| `skip approval: throttle gap=…` | two approval prompts within 2 s (e.g. `Reject with Reason` then an input box) — normal |
+| `skip approval: mode=undefined` | approval arrived before `session_start` — conservative silence |
+| `skip: aborted` | you interrupted with Esc — normal |
+| `skip: not idle (work already queued)` | queued work is about to run — normal |
+| `--- log rotated ---` | the log passed 256 KB and was reset — normal |
 
-1. **工具子进程的 stdout 不是 TTY** —— 是被 pi 捕获的管道（`GetConsoleWindow() = 0`，`GetConsoleProcessList` 只有自己）。`[Console]::Out.Write([char]7)`、`Write-Host`、写 `CONOUT$`、`WriteConsoleW` 全都到不了你的窗格。
-2. **控制字符会被剥掉** —— `pi-coding-agent/dist/utils/shell.js` 的 `sanitizeBinaryOutput()`：
+| Symptom | Check |
+| --- | --- |
+| `bell` in the log but no sound | `bellStyle` contains `audible`; `bellSound` on the *current* profile; system volume; try the `PowerShell` profile |
+| Never any `bell` | `skip: mode=` → gated; nothing at all → not loaded (path / trust) |
+| Approval silent, settle fine | the dialog was not from `pi-permission-system` (e.g. `pi-pwsh` `Request-PiConfirmation`, plan mode); package not loaded (`packages` in `settings.json`); `skip approval: PI_BELL_APPROVAL_DISABLE`; `skip approval: mode=undefined` → restart pi |
+| Rings twice | an old copy without shared throttle — update the file, `/reload` |
+| Approval bells too noisy | `PI_BELL_APPROVAL_DISABLE=1`, or raise `PI_BELL_APPROVAL_MIN_INTERVAL_MS` |
+| Too frequent in general | raise `PI_BELL_MIN_INTERVAL_MS` |
+| Want it while unfocused | `audible` keeps working in the background; if Focus Assist suppresses it, allow-list Windows Terminal |
+
+## Uninstall
+
+```powershell
+pi remove git:github.com/miscellaneous-repo/pi-bells   # package install
+Remove-Item "$env:USERPROFILE\.pi\extensions\pi-bells.ts"   # manual copy
+```
+
+Then `/reload`. An already-loaded instance cannot be unloaded inside the current process — restart
+pi for a clean slate.
+
+## Known limitations
+
+- **TUI only.** `--mode json` / `-p` / RPC runs stay silent by design.
+- **The approval bell depends on an internal event** of `pi-permission-system`
+  (`pi-permission-system:permission-request`, verified with 0.8.0). If that channel is renamed or
+  removed the approval bell goes quiet; the settle bell is unaffected. Symptom: `loaded: … approval=on(…)`
+  with no `bell approval` ever.
+- **Only `pi-permission-system` approvals ring.** Other blocking prompts do not: `pi-pwsh`
+  `Request-PiConfirmation` / `Request-PiSelection` / `Request-PiInput`, plan-mode option lists,
+  `timed-confirm`. Add `pi.on("ui_prompt_start", …)` on top to cover everything.
+- **No success/failure distinction.** `agent_settled` is a boundary event with no result. Use
+  `agent_end` message state if you need that.
+- **No separate delegate bell.** Every settle rings. A dedicated sub-agent bell would need
+  `pi.subagents.notifyStructured: true` and a listener for `customType:
+  "billion-context:delegate-notification"` — a different implementation, not included here.
+- **BEL is a terminal mechanism**, so it cannot reach the notification centre or system toasts. For
+  desktop notifications see the `notify.ts` pattern (PowerShell toast / OSC 777).
+
+## Appendix: why a tool cannot emit BEL
+
+Trying to "preview" the bell with a shell command cannot work — two layers block it:
+
+1. **A tool's stdout is not a TTY.** It is a pipe captured by pi (`GetConsoleWindow() = 0`; the
+   process list contains only itself). `[Console]::Out.Write([char]7)`, `Write-Host`, writing to
+   `CONOUT$` and `WriteConsoleW` all fail to reach your pane.
+2. **Control characters are stripped.** `pi-coding-agent/dist/utils/shell.js`:
 
    ```js
-   str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFF9-\uFFFB]/g, "")   // 0x07 在区间内
+   str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\uFFF9-\uFFFB]/g, "")   // 0x07 is in range
    ```
 
-   `[Console]::Out.Write("A" + [char]7 + "B")` 显示出来就是 `AB`。
+   `[Console]::Out.Write("A" + [char]7 + "B")` renders as `AB`.
 
-所以只有**在 pi 自己的渲染路径上、或扩展直接写 `process.stdout`** 才能真正发声。上面「验证」里的日志 + 真实收尾，是唯一的验证方式。
+Only pi's own render path — or an extension writing `process.stdout` directly — can make a sound.
+The log plus a real settle is the only faithful verification.
 
-另外注意区分两件事：
+Also worth distinguishing:
 
 ```powershell
-[Console]::Beep(800, 200)        # 直接调系统蜂鸣：绕过终端配置，音色不受 bellSound 控制
-[Console]::Out.Write([char]7)    # 发 BEL 给终端：走 bellStyle / bellSound
+[Console]::Beep(800, 200)        # system beep: bypasses terminal config, ignores bellSound
+[Console]::Out.Write([char]7)    # BEL to the terminal: goes through bellStyle / bellSound
 ```
 
-本扩展用的是后者。
+This extension uses the latter.
 
----
+## Project layout
 
-## 文件
-
+```text
+pi-bells.ts                 the extension (single file, zero runtime dependencies)
+test/pi-bells.test.mts      17 stub-based behaviour tests
+package.json                pi manifest + dev tooling (pi only reads the `pi` key)
+tsconfig.json               type checking only (no build, no emit)
+biome.json                  formatting and lint rules
+CHANGELOG.md                Keep a Changelog; pi shows these entries after an update
+docs pages: README.md, README.zh-CN.md, CONTRIBUTING.md, SECURITY.md, LICENSE
 ```
-bell-on-settle.ts              扩展本体（单文件、零依赖、pi 内置类型剥离直接加载）
-README.md                      本文件
-package.json                   只服务于 `npm test`（pi 不读它，放哪里都不影响加载）
-test/bell-on-settle.test.mts   行为测试（桩替身，17 例）
-```
 
-安装到 pi 时**只拷 `bell-on-settle.ts` 一个文件**即可，其余是开发辅助。
+Installing by hand means copying **one** file: `pi-bells.ts`.
 
-## 变更记录
-
-### 0.2.0 — 审批铃
-
-- 新增第二条触发通道：`pi.events.on("pi-permission-system:permission-request")`，仅在 `state === "waiting"` 时响（`pi-permission-system` v0.8.0 实测）。
-- 审批铃使用独立节流桶（`lastApprovalBell`），不与收尾铃互相压制。
-- `pi.events` handler 拿不到 `ctx`，新增 `ctx.mode` 进程级缓存（来源：`session_start` / `agent_settled`）。
-- 新增 `PI_BELL_APPROVAL_DISABLE`、`PI_BELL_APPROVAL_MIN_INTERVAL_MS`；`loaded:` 行新增 `approval=` 字段；日志新增 `bell approval:` / `skip approval:` 系列。
-- 新增 `test/` 与 `package.json`（`npm test`，17 例）。
-
-### 0.1.0 — 收尾铃
-
-- `agent_settled` → BEL，带 `mode` / `aborted` / `isIdle` 门控、共享 2s 节流、`globalThis` 跨实例状态、文件日志与轮转。
-
-## 许可
+## License
 
 Copyright (C) 2026 Aquilonar
 
-本项目按 **GNU General Public License v3.0 or later** 发布，全文见 [LICENSE](LICENSE)。
+GNU General Public License v3.0 or later — see [LICENSE](LICENSE). In short: use, modify and
+redistribute freely; if you distribute a modified version, it must stay GPL-3.0 and keep the
+copyright and warranty notices.
 
-简单说：随便用、随便改、随便传播；但如果你改了再发出去（分发二进制/托管服务也算），必须同样以 GPL-3.0 开源，并保留版权声明与「无担保」条款。
+See [CHANGELOG.md](CHANGELOG.md) for the version history, and [README.zh-CN.md](README.zh-CN.md)
+for the Chinese version of this document.
