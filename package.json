@@ -1,0 +1,28 @@
+{
+  "name": "pi-bell-on-settle",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Two bells for pi: one when the agent settles, one when it is blocked on your approval",
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "author": "Aquilonar",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/miscellaneous-repo/pi-bell-on-settle.git"
+  },
+  "homepage": "https://github.com/miscellaneous-repo/pi-bell-on-settle#readme",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "test": "node --test test/bell-on-settle.test.mts"
+  },
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "pi-coding-agent",
+    "bell",
+    "notification",
+    "windows-terminal"
+  ]
+}
